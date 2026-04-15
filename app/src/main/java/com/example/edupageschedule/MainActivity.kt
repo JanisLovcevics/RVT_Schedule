@@ -590,13 +590,11 @@ fun SubstitutionDetailsDialog(lesson: Lesson, onDismiss: () -> Unit) {
                         LessonChangeType.CANCELLED -> {
                             if (lesson.isMoved && lesson.movedTo != null) {
                                 // Урок перенесён на другой период
-                                val movedToPeriod = lesson.movedTo.replace(Regex("[^0-9]"), "")
-                                val movedToText = if (movedToPeriod.isNotEmpty()) "$movedToPeriod. stundu" else lesson.movedTo
-                                Text(
-                                        text = "Stunda ir pārcelta uz $movedToText",
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.primary
+                                val movedToText = formatMovedTime(lesson.movedTo)
+                                ChangeRow(
+                                        label = "Pārcelta",
+                                        oldValue = "${lesson.period}. stunda",
+                                        newValue = movedToText
                                 )
                             } else if (lesson.isRemote) {
                                 Text(
@@ -620,11 +618,11 @@ fun SubstitutionDetailsDialog(lesson: Lesson, onDismiss: () -> Unit) {
                         }
                         LessonChangeType.ADDED -> {
                             if (lesson.isMoved) {
-                                Text(
-                                        text = if (lesson.movedFrom != null) "Stunda ir pārcelta no ${lesson.movedFrom}" else "Stunda ir pārcelta",
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.primary
+                                val movedFromText = formatMovedTime(lesson.movedFrom)
+                                ChangeRow(
+                                        label = "Pārcelta",
+                                        oldValue = movedFromText,
+                                        newValue = "${lesson.period}. stunda"
                                 )
                             } else {
                                 Text(
@@ -651,11 +649,11 @@ fun SubstitutionDetailsDialog(lesson: Lesson, onDismiss: () -> Unit) {
                         }
                         LessonChangeType.MODIFIED -> {
                             if (lesson.isMoved) {
-                                Text(
-                                        text = if (lesson.movedFrom != null) "Stunda ir pārcelta no ${lesson.movedFrom}" else "Stunda ir pārcelta",
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.primary
+                                val movedFromText = formatMovedTime(lesson.movedFrom)
+                                ChangeRow(
+                                        label = "Pārcelta",
+                                        oldValue = movedFromText,
+                                        newValue = "${lesson.period}. stunda"
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                             }
@@ -918,4 +916,16 @@ fun LessonCard(lesson: Lesson) {
             }
         }
     }
+}
+
+fun formatMovedTime(movedStr: String?): String {
+    if (movedStr == null) return "?"
+    val lower = movedStr.lowercase()
+    if (lower.contains("period") || lower.contains("stund") || movedStr.all { it.isDigit() || it.isWhitespace() }) {
+        val periodNum = movedStr.replace(Regex("[^0-9]"), "")
+        if (periodNum.isNotEmpty()) {
+            return "$periodNum. stunda"
+        }
+    }
+    return movedStr
 }

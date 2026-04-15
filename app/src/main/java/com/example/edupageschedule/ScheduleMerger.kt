@@ -227,9 +227,9 @@ object ScheduleMerger {
                                     changeType = LessonChangeType.MODIFIED,
                                     isMoved = isMoved,
                                     movedFrom = sub.movedFrom,
-                                    originalSubject = sub.rawDescription,
-                                    originalTeachers = lesson.teachers,
-                                    originalClassrooms = if (sub.roomOld != null) listOf(sub.roomOld) else lesson.classrooms
+                                    originalSubject = lesson.originalSubject ?: sub.subject ?: lesson.subject,
+                                    originalTeachers = if (sub.teacherOld != null) listOf(sub.teacherOld) else lesson.originalTeachers ?: lesson.teachers,
+                                    originalClassrooms = if (sub.roomOld != null) listOf(sub.roomOld) else lesson.originalClassrooms ?: lesson.classrooms
                             )
                     if (Constants.DEBUG) println("DEBUG: Lesson ${lesson.period} marked as MODIFIED")
                 } else {
@@ -267,10 +267,14 @@ object ScheduleMerger {
                                     isMoved = sub.isMoved,
                                     changed = true,
                                     changeType = LessonChangeType.MODIFIED,
-                                    // Используем данные из базового расписания или удаления
-                                    originalSubject = lesson.originalSubject ?: lesson.subject,
-                                    originalTeachers = lesson.originalTeachers ?: lesson.teachers,
-                                    originalClassrooms = lesson.originalClassrooms ?: lesson.classrooms,
+                                    // Сначала берем данные из raw-изменений, если их нет — из базового расписания
+                                    originalSubject = lesson.originalSubject ?: sub.subject ?: lesson.subject,
+                                    originalTeachers = 
+                                            if (sub.teacherOld != null) listOf(sub.teacherOld)
+                                            else lesson.originalTeachers ?: lesson.teachers,
+                                    originalClassrooms = 
+                                            if (sub.roomOld != null) listOf(sub.roomOld)
+                                            else lesson.originalClassrooms ?: lesson.classrooms,
                                     movedTo = lesson.movedTo // Сохраняем информацию о том, что старый урок был перенесен
                             )
                 } else {
@@ -291,7 +295,7 @@ object ScheduleMerger {
                                     isMoved = sub.isMoved,
                                     movedFrom = sub.movedFrom,
                                     movedTo = sub.movedTo,
-                                    originalSubject = sub.rawDescription
+                                    originalSubject = fallbackSubject
                             )
                     )
                 }
@@ -340,10 +344,14 @@ object ScheduleMerger {
                                 isMoved = sub.isMoved || existing.isMoved, // Если старый урок перенесен, оставляем флаг
                                 movedFrom = sub.movedFrom ?: existing.movedFrom,
                                 movedTo = sub.movedTo ?: existing.movedTo,
-                                // Сохраняем исходные данные заменяемого урока
-                                originalSubject = existing.originalSubject ?: existing.subject,
-                                originalTeachers = existing.originalTeachers ?: existing.teachers,
-                                originalClassrooms = existing.originalClassrooms ?: existing.classrooms
+                                // Сохраняем исходные данные заменяемого урока, отдавая приоритет substitution info
+                                originalSubject = existing.originalSubject ?: sub.subject ?: existing.subject,
+                                originalTeachers = 
+                                        if (sub.teacherOld != null) listOf(sub.teacherOld)
+                                        else existing.originalTeachers ?: existing.teachers,
+                                originalClassrooms = 
+                                        if (sub.roomOld != null) listOf(sub.roomOld)
+                                        else existing.originalClassrooms ?: existing.classrooms
                         )
             } else {
                 // Слот пустой — добавляем
@@ -361,7 +369,7 @@ object ScheduleMerger {
                                 changeType = LessonChangeType.ADDED,
                                 isMoved = sub.isMoved,
                                 movedFrom = sub.movedFrom,
-                                originalSubject = sub.rawDescription
+                                originalSubject = sub.subject
                         )
 
                 if (Constants.DEBUG) println("DEBUG: Adding new lesson for period $period")
