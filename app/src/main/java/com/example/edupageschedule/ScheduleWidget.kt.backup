@@ -1,0 +1,531 @@
+package com.example.edupageschedule
+
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProvider
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.widget.RemoteViews
+import java.text.SimpleDateFormat
+import java.util.*
+
+class ScheduleWidget : AppWidgetProvider() {
+
+    companion object {
+        const val ACTION_AUTO_UPDATE = "com.example.edupageschedule.action.AUTO_UPDATE"
+    }
+
+    override fun onUpdate(
+            context: Context,
+            appWidgetManager: AppWidgetManager,
+            appWidgetIds: IntArray
+    ) {
+        for (appWidgetId in appWidgetIds) {
+            updateAppWidget(context, appWidgetManager, appWidgetId)
+        }
+        scheduleNextUpdate(context)
+    }
+
+    override fun onReceive(context: Context, intent: Intent) {
+        super.onReceive(context, intent)
+        if (intent.action == ACTION_AUTO_UPDATE) {
+            val appWidgetManager = AppWidgetManager.getInstance(context)
+            val thisAppWidget = ComponentName(context, ScheduleWidget::class.java)
+            val appWidgetIds = appWidgetManager.getAppWidgetIds(thisAppWidget)
+            for (appWidgetId in appWidgetIds) {
+                updateAppWidget(context, appWidgetManager, appWidgetId)
+            }
+            scheduleNextUpdate(context)
+        }
+    }
+
+    override fun onEnabled(context: Context) {
+        scheduleNextUpdate(context)
+    }
+
+    override fun onDisabled(context: Context) {
+        cancelUpdate(context)
+    }
+
+    private fun scheduleNextUpdate(context: Context) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent =
+                Intent(context, ScheduleWidget::class.java).apply { action = ACTION_AUTO_UPDATE }
+        val pendingIntent =
+                PendingIntent.getBroadcast(
+                        context,
+                        0,
+                        intent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+
+        val now = System.currentTimeMillis()
+        val nextMinute = now + 60000 - (now % 60000) // Start of next minute
+
+        // Используем setExactAndAllowWhileIdle для надежного срабатывания даже в режиме Doze
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            if (alarmManager.canScheduleExactAlarms()) {
+                alarmManager.setExactAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        nextMinute,
+                        pendingIntent
+                )
+            } else {
+                // Если нет разрешения, используем setAndAllowWhileIdle (менее точный, но лучше чем
+                // set)
+                alarmManager.setAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        nextMinute,
+                        pendingIntent
+                )
+            }
+        } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    nextMinute,
+                    pendingIntent
+            )
+        } else {
+            alarmManager.setExact(AlarmManager.RTC_WAKEUP, nextMinute, pendingIntent)
+        }
+    }
+
+    private fun cancelUpdate(context: Context) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val intent =
+                Intent(context, ScheduleWidget::class.java).apply { action = ACTION_AUTO_UPDATE }
+        val pendingIntent =
+                PendingIntent.getBroadcast(
+                        context,
+                        0,
+                        intent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+        alarmManager.cancel(pendingIntent)
+    }
+}
+
+internal fun updateAppWidget(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetId: Int
+) {
+    val views = RemoteViews(context.packageName, R.layout.widget_layout)
+
+    val schedule = ScheduleStorage.loadSchedule(context)
+    val substitutions = ScheduleStorage.loadSubstitutions(context)
+
+    val finalSchedule =
+            if (schedule != null && substitutions != null) {
+                ScheduleMerger.applySubstitutions(schedule, substitutions)
+            } else {
+                schedule
+            }
+
+    if (finalSchedule != null) {
+        val widgetData = getWidgetData(finalSchedule)
+
+        if (widgetData != null) {
+            if (widgetData.hasGroups) {
+                // Отображаем с группами
+                // Текущий урок
+                if (widgetData.currentLessonG1.isNotEmpty() ||
+                                widgetData.currentLessonG2.isNotEmpty()
+                ) {
+                    views.setViewVisibility(R.id.widget_current_block, android.view.View.VISIBLE)
+                    views.setViewVisibility(
+                            R.id.widget_current_no_group_block,
+                            android.view.View.GONE
+                    )
+
+                    // Группа 1
+                    if (widgetData.currentLessonG1.isNotEmpty()) {
+                        views.setViewVisibility(
+                                R.id.widget_current_group1_block,
+                                android.view.View.VISIBLE
+                        )
+                        views.setTextViewText(
+                                R.id.widget_current_lesson_g1,
+                                widgetData.currentLessonG1
+                        )
+                        views.setTextViewText(R.id.widget_current_time_g1, widgetData.currentTimeG1)
+                    } else {
+                        views.setViewVisibility(
+                                R.id.widget_current_group1_block,
+                                android.view.View.GONE
+                        )
+                    }
+
+                    // Группа 2
+                    if (widgetData.currentLessonG2.isNotEmpty()) {
+                        views.setViewVisibility(
+                                R.id.widget_current_group2_block,
+                                android.view.View.VISIBLE
+                        )
+                        views.setTextViewText(
+                                R.id.widget_current_lesson_g2,
+                                widgetData.currentLessonG2
+                        )
+                        views.setTextViewText(R.id.widget_current_time_g2, widgetData.currentTimeG2)
+                    } else {
+                        views.setViewVisibility(
+                                R.id.widget_current_group2_block,
+                                android.view.View.GONE
+                        )
+                    }
+                } else {
+                    views.setViewVisibility(R.id.widget_current_block, android.view.View.GONE)
+                }
+
+                // Следующий урок
+                if (widgetData.nextLessonG1.isNotEmpty() || widgetData.nextLessonG2.isNotEmpty()) {
+                    views.setViewVisibility(R.id.widget_next_block, android.view.View.VISIBLE)
+                    views.setViewVisibility(R.id.widget_next_no_group_block, android.view.View.GONE)
+
+                    // Группа 1
+                    if (widgetData.nextLessonG1.isNotEmpty()) {
+                        views.setViewVisibility(
+                                R.id.widget_next_group1_block,
+                                android.view.View.VISIBLE
+                        )
+                        views.setTextViewText(R.id.widget_next_lesson_g1, widgetData.nextLessonG1)
+                        views.setTextViewText(R.id.widget_next_time_g1, widgetData.nextTimeG1)
+                    } else {
+                        views.setViewVisibility(
+                                R.id.widget_next_group1_block,
+                                android.view.View.GONE
+                        )
+                    }
+
+                    // Группа 2
+                    if (widgetData.nextLessonG2.isNotEmpty()) {
+                        views.setViewVisibility(
+                                R.id.widget_next_group2_block,
+                                android.view.View.VISIBLE
+                        )
+                        views.setTextViewText(R.id.widget_next_lesson_g2, widgetData.nextLessonG2)
+                        views.setTextViewText(R.id.widget_next_time_g2, widgetData.nextTimeG2)
+                    } else {
+                        views.setViewVisibility(
+                                R.id.widget_next_group2_block,
+                                android.view.View.GONE
+                        )
+                    }
+                } else {
+                    views.setViewVisibility(R.id.widget_next_block, android.view.View.GONE)
+                }
+            } else {
+                // Отображаем без групп (старый формат для совместимости)
+                views.setViewVisibility(R.id.widget_current_group1_block, android.view.View.GONE)
+                views.setViewVisibility(R.id.widget_current_group2_block, android.view.View.GONE)
+                views.setViewVisibility(R.id.widget_next_group1_block, android.view.View.GONE)
+                views.setViewVisibility(R.id.widget_next_group2_block, android.view.View.GONE)
+
+                // Текущий урок
+                if (widgetData.currentLessonG1.isNotEmpty()) {
+                    views.setViewVisibility(R.id.widget_current_block, android.view.View.VISIBLE)
+                    views.setViewVisibility(
+                            R.id.widget_current_no_group_block,
+                            android.view.View.VISIBLE
+                    )
+                    views.setTextViewText(R.id.widget_current_lesson, widgetData.currentLessonG1)
+                    views.setTextViewText(R.id.widget_current_time, widgetData.currentTimeG1)
+                } else {
+                    views.setViewVisibility(R.id.widget_current_block, android.view.View.GONE)
+                }
+
+                // Следующий урок
+                if (widgetData.nextLessonG1.isNotEmpty()) {
+                    views.setViewVisibility(R.id.widget_next_block, android.view.View.VISIBLE)
+                    views.setViewVisibility(
+                            R.id.widget_next_no_group_block,
+                            android.view.View.VISIBLE
+                    )
+                    views.setTextViewText(R.id.widget_next_lesson, widgetData.nextLessonG1)
+                    views.setTextViewText(R.id.widget_next_time, widgetData.nextTimeG1)
+                } else {
+                    views.setViewVisibility(R.id.widget_next_block, android.view.View.GONE)
+                }
+            }
+        } else {
+            // Нет данных
+            views.setViewVisibility(R.id.widget_current_group1_block, android.view.View.GONE)
+            views.setViewVisibility(R.id.widget_current_group2_block, android.view.View.GONE)
+            views.setViewVisibility(R.id.widget_current_no_group_block, android.view.View.VISIBLE)
+            views.setTextViewText(R.id.widget_current_lesson, "Nav datu")
+            views.setTextViewText(R.id.widget_current_time, "Atveriet aplikāciju")
+            views.setViewVisibility(R.id.widget_current_block, android.view.View.VISIBLE)
+            views.setViewVisibility(R.id.widget_next_block, android.view.View.GONE)
+        }
+    } else {
+        views.setViewVisibility(R.id.widget_current_group1_block, android.view.View.GONE)
+        views.setViewVisibility(R.id.widget_current_group2_block, android.view.View.GONE)
+        views.setViewVisibility(R.id.widget_current_no_group_block, android.view.View.VISIBLE)
+        views.setTextViewText(R.id.widget_current_lesson, "Nav datu")
+        views.setTextViewText(R.id.widget_current_time, "Atveriet aplikāciju")
+        views.setViewVisibility(R.id.widget_current_block, android.view.View.VISIBLE)
+        views.setViewVisibility(R.id.widget_next_block, android.view.View.GONE)
+    }
+
+    appWidgetManager.updateAppWidget(appWidgetId, views)
+}
+
+private fun getWidgetData(schedule: Schedule): WidgetData? {
+    val calendar = Calendar.getInstance()
+    val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+    val currentDate = dateFormat.format(calendar.time)
+    val currentTime = calendar.time
+
+    // Находим сегодняшний день
+    val today = schedule.days.find { it.date == currentDate }
+
+    // Проверяем, есть ли на сегодня хотя бы один неотменённый урок
+    val todayValidLessons =
+            today?.lessons?.filter { it.changeType != LessonChangeType.CANCELLED } ?: emptyList()
+
+    // Проверяем, есть ли группы
+    val hasGroups = todayValidLessons.any { !it.group.isNullOrBlank() }
+
+    // Если сегодня есть уроки - работаем с сегодняшним днём
+    if (todayValidLessons.isNotEmpty()) {
+        if (hasGroups) {
+            // Обрабатываем уроки с группами
+            val group1OnlyLessons = todayValidLessons.filter { it.group == "1" }
+            val group2OnlyLessons = todayValidLessons.filter { it.group == "2" }
+            val noGroupLessons = todayValidLessons.filter { it.group.isNullOrBlank() }
+
+            // Находим текущий урок
+            val currentLessonInfo =
+                    findCurrentLessonForGroups(
+                            group1OnlyLessons,
+                            group2OnlyLessons,
+                            noGroupLessons,
+                            currentDate,
+                            currentTime
+                    )
+
+            // Находим время окончания текущих уроков
+            val currentEndTime =
+                    findCurrentLessonEndTime(todayValidLessons, currentDate, currentTime)
+
+            // Находим следующий урок
+            val nextLessonInfo =
+                    findNextLessonForGroups(
+                            group1OnlyLessons,
+                            group2OnlyLessons,
+                            noGroupLessons,
+                            currentDate,
+                            currentEndTime ?: currentTime,
+                            currentTime
+                    )
+
+            // Если нет текущих и следующих уроков, показываем следующий день
+            if (currentLessonInfo.isEmpty() && nextLessonInfo.isEmpty()) {
+                return getNextDayData(schedule, currentDate)
+            }
+
+            return WidgetData(
+                    currentLessonG1 = currentLessonInfo.lessonG1,
+                    currentTimeG1 = currentLessonInfo.timeG1,
+                    currentLessonG2 = currentLessonInfo.lessonG2,
+                    currentTimeG2 = currentLessonInfo.timeG2,
+                    nextLessonG1 = nextLessonInfo.lessonG1,
+                    nextTimeG1 = nextLessonInfo.timeG1,
+                    nextLessonG2 = nextLessonInfo.lessonG2,
+                    nextTimeG2 = nextLessonInfo.timeG2,
+                    hasGroups = true
+            )
+        } else {
+            // Обрабатываем уроки без групп (старый формат)
+            val (current, currentTimeStr) =
+                    findCurrentLesson(todayValidLessons, currentDate, currentTime)
+
+            val currentEndTime =
+                    findCurrentLessonEndTime(todayValidLessons, currentDate, currentTime)
+            val (next, nextTimeStr) =
+                    findNextLessonAfterTime(
+                            todayValidLessons,
+                            currentDate,
+                            currentEndTime ?: currentTime,
+                            currentTime
+                    )
+
+            // Если нет текущих и следующих уроков, показываем следующий день
+            if (current.isEmpty() && next.isEmpty()) {
+                return getNextDayData(schedule, currentDate)
+            }
+
+            return WidgetData(
+                    currentLessonG1 = current,
+                    currentTimeG1 = currentTimeStr,
+                    currentLessonG2 = "",
+                    currentTimeG2 = "",
+                    nextLessonG1 = next,
+                    nextTimeG1 = nextTimeStr,
+                    nextLessonG2 = "",
+                    nextTimeG2 = "",
+                    hasGroups = false
+            )
+        }
+    }
+
+    // Сегодня нет уроков - показываем следующий день
+    return getNextDayData(schedule, currentDate)
+}
+
+
+    // Сортируем уроки по времени начала для предсказуемости
+    val sortedLessons =
+            lessons.sortedBy { lesson ->
+                try {
+                    val times = lesson.time.split("-")
+                    if (times.size != 2) return@sortedBy Long.MAX_VALUE
+                    val timeStr = times[0].trim()
+                    val fullDateStr = "$currentDate $timeStr"
+                    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                            .parse(fullDateStr)
+                            ?.time
+                            ?: Long.MAX_VALUE
+                } catch (e: Exception) {
+                    Long.MAX_VALUE
+                }
+            }
+
+    for (lesson in sortedLessons) {
+        val times = lesson.time.split("-")
+        if (times.size != 2) continue
+
+        val startTime =
+                try {
+                    val timeStr = times[0].trim()
+                    val fullDateStr = "$currentDate $timeStr"
+                    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).parse(fullDateStr)
+                } catch (e: Exception) {
+                    continue
+                }
+
+        val endTime =
+                try {
+                    val timeStr = times[1].trim()
+                    val fullDateStr = "$currentDate $timeStr"
+                    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).parse(fullDateStr)
+                } catch (e: Exception) {
+                    continue
+                }
+
+        // Урок идёт прямо сейчас - обновляем максимальное время окончания
+        if (currentTime.after(startTime) && currentTime.before(endTime)) {
+            if (maxEndTime == null || endTime.after(maxEndTime)) {
+                maxEndTime = endTime
+            }
+        }
+    }
+    return maxEndTime
+}
+
+private fun findNextLessonAfterTime(
+        lessons: List<Lesson>,
+        currentDate: String,
+        afterTime: Date,
+        currentTime: Date
+): Pair<String, String> {
+    // Сортируем уроки по времени начала, чтобы найти самый ранний следующий урок
+    val sortedLessons =
+            lessons.sortedBy { lesson ->
+                try {
+                    val times = lesson.time.split("-")
+                    if (times.size != 2) return@sortedBy Long.MAX_VALUE
+                    val timeStr = times[0].trim()
+                    val fullDateStr = "$currentDate $timeStr"
+                    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                            .parse(fullDateStr)
+                            ?.time
+                            ?: Long.MAX_VALUE
+                } catch (e: Exception) {
+                    Long.MAX_VALUE
+                }
+            }
+
+    for (lesson in sortedLessons) {
+        val times = lesson.time.split("-")
+        if (times.size != 2) continue
+
+        val startTime =
+                try {
+                    val timeStr = times[0].trim()
+                    val fullDateStr = "$currentDate $timeStr"
+                    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).parse(fullDateStr)
+                } catch (e: Exception) {
+                    continue
+                }
+
+        // Ищем урок, который начинается после указанного времени
+        if (startTime.after(afterTime)) {
+            val minutesUntil = ((startTime.time - currentTime.time) / 1000 / 60).toInt()
+
+            val timeStr =
+                    when {
+                        minutesUntil < 1 -> "Sākas tagad!"
+                        minutesUntil < 60 -> "Sākas pēc: $minutesUntil min"
+                        minutesUntil < 120 -> {
+                            val mins = minutesUntil % 60
+                            if (mins > 0) "Sākas pēc: 1 h $mins min" else "Sākas pēc: 1 h"
+                        }
+                        else -> {
+                            val hours = minutesUntil / 60
+                            val mins = minutesUntil % 60
+                            if (mins > 0) "Sākas pēc: $hours h $mins min" else "Sākas pēc: $hours h"
+                        }
+                    }
+
+            return Pair(lesson.subject, timeStr)
+        }
+    }
+    return Pair("", "")
+}
+
+private fun getNextDayData(schedule: Schedule, currentDate: String): WidgetData? {
+    val nextDay =
+            schedule.days
+                    .filter { day ->
+                        day.date > currentDate &&
+                                day.lessons.any { it.changeType != LessonChangeType.CANCELLED }
+                    }
+                    .minByOrNull { it.date }
+
+    return if (nextDay != null) {
+        val firstLesson =
+                nextDay.lessons.firstOrNull { it.changeType != LessonChangeType.CANCELLED }
+        if (firstLesson != null) {
+            WidgetData(
+                    currentLessonG1 = "",
+                    currentTimeG1 = "",
+                    currentLessonG2 = "",
+                    currentTimeG2 = "",
+                    nextLessonG1 = "${nextDay.dayName}, ${nextDay.dateFormatted}",
+                    nextTimeG1 = "${firstLesson.time}: ${firstLesson.subject}",
+                    nextLessonG2 = "",
+                    nextTimeG2 = "",
+                    hasGroups = false
+            )
+        } else {
+            null
+        }
+    } else {
+        null
+    }
+}
+
+data class WidgetData(
+        val currentLessonG1: String,
+        val currentTimeG1: String,
+        val currentLessonG2: String,
+        val currentTimeG2: String,
+        val nextLessonG1: String,
+        val nextTimeG1: String,
+        val nextLessonG2: String,
+        val nextTimeG2: String,
+        val hasGroups: Boolean
+)

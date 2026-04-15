@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">EdupageSchedule</string>
+    <string name="widget_description">Rāda ejošo un nākamo stundu</string>
+</resources>
