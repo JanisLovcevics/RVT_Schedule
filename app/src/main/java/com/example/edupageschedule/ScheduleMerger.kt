@@ -267,14 +267,11 @@ object ScheduleMerger {
                                     isMoved = sub.isMoved,
                                     changed = true,
                                     changeType = LessonChangeType.MODIFIED,
-                                    // Используем данные из замены, а не из базового расписания
-                                    originalSubject = sub.subject ?: lesson.subject,
-                                    originalTeachers =
-                                            if (sub.teacherOld != null) listOf(sub.teacherOld)
-                                            else lesson.teachers,
-                                    originalClassrooms =
-                                            if (sub.roomOld != null) listOf(sub.roomOld)
-                                            else lesson.classrooms
+                                    // Используем данные из базового расписания или удаления
+                                    originalSubject = lesson.originalSubject ?: lesson.subject,
+                                    originalTeachers = lesson.originalTeachers ?: lesson.teachers,
+                                    originalClassrooms = lesson.originalClassrooms ?: lesson.classrooms,
+                                    movedTo = lesson.movedTo // Сохраняем информацию о том, что старый урок был перенесен
                             )
                 } else {
                     if (Constants.DEBUG) println("DEBUG: Fallback adding new lesson at period $period")
@@ -339,10 +336,14 @@ object ScheduleMerger {
                                 classrooms = listOfNotNull(sub.roomNew ?: sub.roomOld),
                                 group = sub.group ?: existing.group,
                                 changed = true,
-                                changeType = LessonChangeType.ADDED,
-                                isMoved = sub.isMoved,
-                                movedFrom = sub.movedFrom,
-                                originalSubject = sub.rawDescription
+                                changeType = if (existing.subject == "N/A" && existing.originalSubject == null) LessonChangeType.ADDED else LessonChangeType.MODIFIED,
+                                isMoved = sub.isMoved || existing.isMoved, // Если старый урок перенесен, оставляем флаг
+                                movedFrom = sub.movedFrom ?: existing.movedFrom,
+                                movedTo = sub.movedTo ?: existing.movedTo,
+                                // Сохраняем исходные данные заменяемого урока
+                                originalSubject = existing.originalSubject ?: existing.subject,
+                                originalTeachers = existing.originalTeachers ?: existing.teachers,
+                                originalClassrooms = existing.originalClassrooms ?: existing.classrooms
                         )
             } else {
                 // Слот пустой — добавляем
